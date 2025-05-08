@@ -1,6 +1,10 @@
+# Python compatibility (commented for info, set in runtime if needed)
+# python_version >= 3.9, <= 3.10
+
 streamlit==1.22.0
 pandas==1.5.3
 numpy==1.24.3
+setuptools>=68.0.0  
 matplotlib==3.7.1
 seaborn==0.12.2
 plotly==5.14.1
@@ -9,4 +13,3 @@ beautifulsoup4==4.12.2
 schedule==1.2.0
 folium==0.14.0
 streamlit-folium==0.11.1
-setuptools>=68.0.0
