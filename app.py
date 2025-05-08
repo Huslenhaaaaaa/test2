@@ -54,7 +54,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Function to load data
+# Function to load data with duplicate URL checking
 @st.cache_data(ttl=3600)
 def load_data():
     # Find matching files
@@ -62,17 +62,53 @@ def load_data():
     sales_files = glob.glob("data/unegui_sales_data_*.csv")
 
     def load_and_process(files, label):
-        frames = []
+        all_data = []
         for f in files:
             try:
                 df = pd.read_csv(f, encoding='utf-8-sig')
                 date_str = os.path.basename(f).split('_')[-1].split('.')[0]
                 df['Scraped_date'] = pd.to_datetime(date_str, format='%Y%m%d', errors='coerce')
                 df['Type'] = label
-                frames.append(df)
+                all_data.append(df)
             except Exception as e:
                 st.warning(f"Error loading {f}: {e}")
-        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+        
+        if not all_data:
+            return pd.DataFrame()
+            
+        # Combine all dataframes
+        combined_df = pd.concat(all_data, ignore_index=True)
+        
+        # Check for and remove duplicates based on URL/link
+        if 'Link' in combined_df.columns:
+            url_col = 'Link'
+        elif 'URL' in combined_df.columns:
+            url_col = 'URL'
+        elif 'url' in combined_df.columns:
+            url_col = 'url'
+        elif 'link' in combined_df.columns:
+            url_col = 'link'
+        elif 'Зар' in combined_df.columns:  # This might be a link column in Mongolian
+            url_col = 'Зар'
+        else:
+            # If no URL column is found, try to use ad_id as a unique identifier
+            if 'ad_id' in combined_df.columns:
+                url_col = 'ad_id'
+            else:
+                st.warning("No URL or ad_id column found. Cannot check for duplicates.")
+                return combined_df
+        
+        # Count duplicates before removal
+        duplicate_count = combined_df.duplicated(subset=[url_col]).sum()
+        
+        # Remove duplicates
+        combined_df = combined_df.drop_duplicates(subset=[url_col], keep='first')
+        
+        # Log the number of duplicates removed
+        if duplicate_count > 0:
+            st.info(f"Removed {duplicate_count} duplicate listings based on {url_col}")
+            
+        return combined_df
 
     rental_df = load_and_process(rental_files, 'Rent')
     sales_df = load_and_process(sales_files, 'Sale')
@@ -143,6 +179,17 @@ def main():
     df = load_data()
     if df is None:
         return
+    
+    # Add data summary in expander
+    with st.expander("Data Source Information"):
+        st.info(f"Total listings loaded: {len(df)} (after removing duplicates)")
+        if 'Scraped_date' in df.columns:
+            st.write(f"Data date range: {df['Scraped_date'].min().date()} to {df['Scraped_date'].max().date()}")
+        if 'Type' in df.columns:
+            type_counts = df['Type'].value_counts()
+            st.write("Property Types:")
+            st.write(f"- Rent: {type_counts.get('Rent', 0)}")
+            st.write(f"- Sale: {type_counts.get('Sale', 0)}")
     
     # Sidebar filters
     st.sidebar.title("Filters")
@@ -554,13 +601,68 @@ def main():
             )
             st.plotly_chart(fig_floor, use_container_width=True)
     
+    # Add data trends over time section if we have time-series data
+    if 'Scraped_date' in df.columns and df['Scraped_date'].nunique() > 1:
+        st.markdown("---")
+        st.markdown('<div class="sub-header">Data Trends Over Time</div>', unsafe_allow_html=True)
+        
+        # Group by date and calculate daily averages
+        time_data = df.groupby(df['Scraped_date'].dt.date).agg({
+            'Үнэ': 'mean',
+            'ad_id': 'count',
+            'Price_per_m2': 'mean'
+        }).reset_index()
+        
+        # Plot price trends over time
+        st.markdown("#### Price Trends")
+        
+        fig_trends = go.Figure()
+        
+        fig_trends.add_trace(go.Scatter(
+            x=time_data['Scraped_date'],
+            y=time_data['Үнэ'],
+            mode='lines+markers',
+            name='Average Price (₮)',
+            line=dict(color='#2563EB', width=2)
+        ))
+        
+        fig_trends.update_layout(
+            xaxis_title="Date",
+            yaxis_title="Average Price (₮)",
+            title="Average Price Trend Over Time"
+        )
+        
+        st.plotly_chart(fig_trends, use_container_width=True)
+        
+        # Plot listing volume over time
+        st.markdown("#### Listing Volume Trends")
+        
+        fig_volume = go.Figure()
+        
+        fig_volume.add_trace(go.Scatter(
+            x=time_data['Scraped_date'],
+            y=time_data['ad_id'],
+            mode='lines+markers',
+            name='Number of Listings',
+            line=dict(color='#10B981', width=2),
+            fill='tozeroy'
+        ))
+        
+        fig_volume.update_layout(
+            xaxis_title="Date",
+            yaxis_title="Number of Listings",
+            title="Daily Listing Volume"
+        )
+        
+        st.plotly_chart(fig_volume, use_container_width=True)
+    
     # Footer
     st.markdown("---")
-    st.markdown("""
+    st.markdown(f"""
     <div style="text-align: center; color: #6B7280; padding: 1rem;">
-        Data scraped from Unegui.mn | Dashboard updated: {}
+        Data scraped from Unegui.mn | Dashboard updated: {datetime.now().strftime("%Y-%m-%d")}
     </div>
-    """.format(datetime.now().strftime("%Y-%m-%d")), unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
