@@ -1,0 +1,51 @@
+name: Daily Rental Scraping
+on:
+  schedule:
+    # Runs at 2:00 AM UTC every day (adjust as needed)
+    - cron: '0 2 * * *'
+  # Allow manual triggering as well
+  workflow_dispatch:
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          # Fetch all history for proper file updates
+          fetch-depth: 0
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          
+      - name: Modify rental scraper to update existing files
+        run: |
+          python .github/scripts/update_scrapers.py --type rental
+          
+      - name: Run rental scraper
+        run: |
+          python rental_scraper.py
+          
+      - name: Configure Git
+        run: |
+          git config --global user.name 'GitHub Actions Bot'
+          git config --global user.email 'actions@github.com'
+          
+      - name: Commit and push changes
+        run: |
+          # Check if there are any changes
+          if [[ -n $(git status -s) ]]; then
+            git add data/rentals/
+            git add rental*.log
+            git commit -m "Auto-update rental data [$(date +'%Y-%m-%d')]"
+            git push
+          else
+            echo "No changes to commit"
+          fi
